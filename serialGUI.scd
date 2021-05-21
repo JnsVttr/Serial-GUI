@@ -6,7 +6,8 @@
 // SerialPort.listDevices;
 i = (); // all functions
 i.midiConnected = false; // true if MIDI is connected
-i.midiSendChannel = 1;   // send/ receive channels to be adapted 1 + 0 (WELLE or Emulation)
+// send-receive channels to be adapted: send to WELLE (1) receive (0); send to Emulation (0), receive (1)
+i.midiSendChannel = 1;
 i.midiReceiveChannel = 0;
 i.stringDest = "eq"; // destination for eq or env
 
@@ -41,22 +42,18 @@ i.sendMIDI = {|f, message|
 			},
 			'sendPattern', {
 				content.do({|entry, c|
-					var controller = 1 + c;
+					var cc = 1 + c;
 					var val =  entry;
-					i.midiOut.control(i.midiSendChannel, controller, val);
+					i.midiOut.control(i.midiSendChannel, cc, val);
 				});
 			},
 			'sendEq', {
-				var newEqMidi = message[1];
-				var eqMidi = i.eqMidi;
+				var newEq = content;
 				for (0, 4, {|c|
 					var cc = c+10;  // midi control Eq = cc 10-14
-					if (eqMidi[c] != newEqMidi[c], {  // check if eq changed, and only send changed values
-						i.midiOut.control(0, cc, newEqMidi[c]*126);
-					});
-
+					i.midiOut.control(i.midiSendChannel, cc, newEq[c]);
 				});
-				i.eqMidi = newEqMidi;
+
 			},
 			'sendEnv', {
 				var newEnvMidi = message[1];
@@ -103,19 +100,25 @@ i.serialFunction = {|f, message|
 	});
 	if (device == "fader", {
 		content.removeAt(6);
-		// smooth messages
-		content.do({|val, c|
-			var tolerance = 15;
-			var in = val.asInteger.thresh(0).softRound(tolerance, 0, 1);
-			var stored = i.faderVal[c].thresh(0).softRound(tolerance, 0, 1);
-			if (in != stored, {
-				i.faderVal[c] = in;
-				stringMoved = true;
+		if (content.size == 6, {
+			// smooth messages
+			content.do({|val, c|
+				var tolerance = 15;
+				var in = val.asInteger.softRound(tolerance, 0, 1);
+				var stored = i.faderVal[c].softRound(tolerance, 0, 1);
+				if (in != stored, {
+					i.faderVal[c] = in;
+					stringMoved = true;
+				});
 			});
-		});
-		if (stringMoved, {
-			// ("serial fader: " + content + "i.faderVal: " + i.faderVal).postln;
-
+			if (stringMoved, {
+				var newEq;
+				if (i.stringDest == "eq", {
+					newEq = i.unConvertEq(content);
+					i.sendMIDI( ('command': 'sendEq', 'content': newEq) );
+				});
+				//("serial fader: " + content + "newEq: " + newEq).postln;
+			});
 		});
 	});
 };
@@ -123,18 +126,20 @@ i.serialFunction = {|f, message|
 
 ////////////////////////////////////////////////////////////
 // converters
-i.convertEnv = {|f, envShort|
-	// [0,atk,atk+dec,atk+dec+rel,1]      [0,1,sus,sus,0]
-	var envArray = Array2D.new(2,4);
-	var atk = envShort[0];
-	var dec = envShort[1];
-	var sus = envShort[2];
-	var rel = envShort[3];
-	envArray = [ [0, atk, atk+dec, 1], [0, 1, sus, 0]];
+/*i.convertEnv = {|f, envShort|
+// [0,atk,atk+dec,atk+dec+rel,1]      [0,1,sus,sus,0]
+var envArray = Array2D.new(2,4);
+var atk = envShort[0];
+var dec = envShort[1];
+var sus = envShort[2];
+var rel = envShort[3];
+envArray = [ [0, atk, atk+dec, 1], [0, 1, sus, 0]];
 };
+*/
+
 i.unConvertEnv = {|f, envLong|
-	// [ [ 0, 0.1, 0.6, 1 ], [ 0, 1, 0.4, 0 ] ]
-	// [0,atk,atk+dec,atk+dec+rel,1]      [0,1,sus,sus,0]
+	// device: [ 1, 2, 3, 4, horizontal1, horizontal2 ]
+	// Emulation only: [ [ 0, 0.1, 0.6, 1 ], [ 0, 1, 0.4, 0 ] ] -> [0,atk,atk+dec,atk+dec+rel,1]      [0,1,sus,sus,0]
 	var envArray = Array.new(4);
 	var atk = envLong[0][1];
 	var dec = envLong[0][2]-atk;
@@ -143,24 +148,29 @@ i.unConvertEnv = {|f, envLong|
 	envArray = [ atk, dec, sus, rel ];
 };
 
+/*
 i.convertEq = {|f, settings|
-	// [high, highFreq, mid, midFreq, low]
-	var high = settings[4];
-	var highFreq = settings[3];
-	var mid = settings[2];
-	var midFreq = settings[1];
-	var low = settings[0];
-	var eqArray = Array2D.new(2,4);
-	eqArray = [[0, midFreq, highFreq, 1], [low, mid, mid, high]];
-};
+// [high, highFreq, mid, midFreq, low]
+var high = settings[4];
+var highFreq = settings[3];
+var mid = settings[2];
+var midFreq = settings[1];
+var low = settings[0];
+var eqArray = Array2D.new(2,4);
+eqArray = [[0, midFreq, highFreq, 1], [low, mid, mid, high]];
+};*/
+
+// ControlSpec map only with 0..1.0 as source
+i.mapMidFreq = ControlSpec(20, 50, \lin);
+i.mapHighFreq = ControlSpec(30, 60, \lin);
 i.unConvertEq = {|f, settings|
-	// [[0, midFreq, highFreq, 1], [low, mid, mid, high]]
-	var high = settings[1][3];
-	var highFreq = settings[0][2];
-	var mid = (settings[1][1]+settings[1][2])/2;
-	var midFreq = settings[0][1];
-	var low = settings[1][0];
-	var eqArray = Array.fill(4);
+	// [ 1, 2, 3, 4, horizontal1, horizontal2 ]
+	var high = settings[3];
+	var highFreq = i.mapHighFreq.map(settings[5]/100).asInteger;
+	var mid = ((settings[1] + settings[2]) / 2).asInteger;
+	var midFreq = i.mapMidFreq.map(settings[4]/100).asInteger;
+	var low = settings[0];
+	var eqArray = Array.fill(5);
 	eqArray = [low, midFreq, mid, highFreq, high];
 };
 
@@ -214,7 +224,12 @@ i.scanSerials = {
 						// extract first message and split to device id
 						id = arr[0].split($/)[1];
 						arr.removeAt(0); // remove first entry (command)
-						content = arr;
+						// content = arr;
+						content = Array.fill(arr.size);
+						arr.do({|entry, c|
+							content[c] = entry.asInteger;
+						});
+
 
 						switch(id,
 							"wheel", {deviceName = "wheel"},
