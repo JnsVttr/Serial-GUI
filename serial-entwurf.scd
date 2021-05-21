@@ -1,23 +1,130 @@
-// Tangible Signals - Serial Ports
-// ===============================
+// Tangible Signals - Serial Ports GUI
+// ===================================
 
-// devices show as /dev/tty.SLAB_USBtoUART + integer
-
-/*
-Check device:
-"/dev/tty.SLAB_USBtoUART".split($/)[2];
-"/dev/tty.SLAB_USBtoUART".split($/)[2].split($.)[0] == "tty";
-Check the name:
-"/dev/tty.SLAB_USBtoUART".split($.);
-"/dev/tty.SLAB_USBtoUART".split($.)[1];
-"/dev/tty.SLAB_USBtoUART".split($.)[1].beginsWith("SLAB");
-
-*/
 
 (
 // SerialPort.listDevices;
 i = (); // all functions
+i.midiConnected = false; // true if MIDI is connected
+i.midiSendChannel = 1;   // send/ receive channels to be adapted 1 + 0 (WELLE or Emulation)
+i.midiReceiveChannel = 0;
 
+// global vars
+i.pattern = [0,0,0,0,0,0,0,0];
+i.volume = 0.1;  // 425 * 0.296 = 126
+i.faderVal = [0,0,0,0,0,0];
+i.envelope = [ [ 0, 0.1, 0.3, 1 ], [ 0, 1, 0.4, 0 ] ] ; // atk, dec, sus, rel
+i.eq = [[0.0, 0.3, 0.7, 1.0], [0.5, 0.5, 0.5, 0.5]];
+i.eqMidi = [ 0.5, 0.25, 0.52, 0.7, 0.5 ];
+i.envMidi = [ 0.2, 0.15, 0.35, 0.64 ];
+// i.stringInput = 0;
+// i.selInst = [1, 1];
+// i.selPattern = [1, 1];
+
+
+
+
+
+
+////////////////////////////////////////////////////////////
+// SEND MIDI FUNCTION
+// send/ receive : channel 1 + 2
+i.sendMIDI = {|f, message|
+	var command = message[\command];
+	var content = message[\content];
+	("sendMidi - message: " + message).postln;
+	if (i.midiConnected, {
+		switch(command,
+			'sendVolume', {
+				i.midiOut.control(i.midiSendChannel, 9, content)
+			},
+			'sendPattern', {
+				content.do({|entry, c|
+					var controller = 1 + c;
+					var val =  entry;
+					i.midiOut.control(i.midiSendChannel, controller, val);
+				});
+			},
+			'sendEq', {
+				var newEqMidi = message[1];
+				var eqMidi = i.eqMidi;
+				for (0, 4, {|c|
+					var cc = c+10;  // midi control Eq = cc 10-14
+					if (eqMidi[c] != newEqMidi[c], {  // check if eq changed, and only send changed values
+						i.midiOut.control(0, cc, newEqMidi[c]*126);
+					});
+
+				});
+				i.eqMidi = newEqMidi;
+			},
+			'sendEnv', {
+				var newEnvMidi = message[1];
+				var envMidi = i.envMidi;
+				for (0, 3, {|c|
+					var cc = c+16;  // midi control Env = cc 16-20
+					if (envMidi[c] != newEnvMidi[c], {  // check if eq changed, and only send changed values
+						i.midiOut.control(0, cc, newEnvMidi[c]*126);
+					});
+
+				});
+				i.envMidi = newEnvMidi;
+			}
+		)
+	})
+};
+
+
+
+////////////////////////////////////////////////////////////
+// SERIAL FUNCTION
+// i.serialFunction( ('count': c, 'name': deviceName, 'command': command, 'content': content) );
+i.serialFunction = {|f, message|
+	var device = message[\name]; // e.g. "pin", "wheel" or "fader"
+	var content = message[\content]; // array, e.g. [1,1,1,1,1,1,1,1], [ 182, 0, 0], [ 0, 12, 12, 33, 43, 12]
+	var command = message[\command]; // e.g. /pin, /wheel/startPos
+	var stringMoved = false;
+	var vol, eq, env;
+	/*if (device != "fader", {
+		("serial function: " + message).postln;
+	});*/
+
+	if (device == "pin", {
+		content.removeAt(8); // remove last entry, doesn't belong to pattern
+		i.sendMIDI( ('command': 'sendPattern', 'content': content) );
+	});
+	if (device == "wheel", {
+		vol = content[0].asInteger;
+		vol = (vol * 0.296).asInteger; // asInteger: get rid of decimals
+		("serial - " + "wheel vol: " + vol + " command: " + command).postln;
+		if ( command == "/wheel", {
+			i.sendMIDI( ('command': 'sendVolume', 'content': vol) );
+		});
+	});
+	if (device == "fader", {
+		content.removeAt(6);
+		// filter messages
+		content.do({|val, c|
+			var tolerance = 15;
+			var in = val.asInteger.thresh(0).softRound(tolerance, 0, 1);
+			var stored = i.faderVal[c].thresh(0).softRound(tolerance, 0, 1);
+			if (in != stored, {
+				i.faderVal[c] = in;
+				stringMoved = true;
+			});
+		});
+		if (stringMoved, {
+			("serial fader: " + content + "i.faderVal: " + i.faderVal).postln;
+		});
+	});
+};
+
+
+
+
+
+
+////////////////////////////////////////////////////////////
+// SCAN SERIAL PORTS FUNCTION
 i.scanSerials = {
 	i.allSerialDevices = SerialPort.devices;
 	i.tangibleDevices = Array.fill(3, nil);
@@ -48,7 +155,7 @@ i.scanSerials = {
 			dev[\port].doneAction = { (dev[\serial] + " - serial port got closed").postln; };
 
 			dev[\routine] = Routine({
-				var byte, str, arr, id, deviceName;
+				var byte, str, arr, id, deviceName, command, content, message;
 				inf.do{
 					if(dev[\port].read==10, {
 						str = "";
@@ -58,8 +165,13 @@ i.scanSerials = {
 						// STRING
 						// split string into array
 						arr = str.replace(",", "").split($ );
+
+						// get command and content
+						command = arr[0];
 						// extract first message and split to device id
 						id = arr[0].split($/)[1];
+						arr.removeAt(0); // remove first entry (command)
+						content = arr;
 
 						switch(id,
 							"wheel", {deviceName = "wheel"},
@@ -67,26 +179,59 @@ i.scanSerials = {
 							"fader", {deviceName = "fader"},
 							{deviceName = nil}
 						);
-						dev[\name] = deviceName;
-						if (dev[\name] != nil, {dev[\assigned] = true;});
+						if (dev[\name] == nil && deviceName != nil, {
+							dev[\name] = deviceName;
+							dev[\assigned] = true;
+							defer {
+								if (i.window.isClosed == false, {
+									i.displaySerialDevices.value;
+								});
+							};
+						});
 
-						i.serialFunction([c, deviceName, arr, dev]);
+						// i.serialFunction([c, deviceName, arr, dev]);
+						message = ('count': c, 'name': deviceName, 'command': command, 'content': content);
+						i.serialFunction( message );
 					});
 				};
 			}).play;
 		});
 	});
 
-
-	i.serialFunction = {|f, message| if (message[1]!="fader", {
-		("serial function: " + message).postln;
-		// i.tangibleDevices.do({|dev| if (dev[\assigned], {dev.postln})});
-	}) };
-
-
-	i.serialIndex.string = "connected: " + i.serialCount;
+	defer { i.serialIndex.string = "connected: " + i.serialCount + " (move to assign)"; };
 };
 
+
+
+
+
+
+// display devices once they are recognized
+i.displaySerialDevices = {
+	var assigned = 0, displayed = 0;
+	i.tangibleDevices.do{|dev|
+		if (dev[\assigned], {assigned = assigned + 1});
+	};
+	// count how many are already displayed
+	displayed = i.serialList.string.split($\n).size - 1;
+	// if difference, extract new device names and display
+	if (assigned > displayed, {
+		var serialString = "";
+		"update display".postln;
+		i.tangibleDevices.do({|dev|
+			if (dev[\assigned], {
+				serialString = serialString + "> " + dev[\name] + "\n";
+			});
+		});
+		defer { i.serialList.string = serialString };
+	});
+
+	defer {
+		if (displayed > 2, {
+			i.serialIndex.string = "connected: " + i.serialCount;
+		});
+	}
+};
 
 
 ////////////////////////////////////////////////////////////
@@ -113,11 +258,11 @@ i.startMIDI = {
 				[index, menu.value, menu.item].postln;
 				if (i.midiOut == nil, {
 					i.midiOut = MIDIOut.newByName(i.midiDevices[index].device,i.midiDevices[index].name);
-					i.midiOut.noteOn(16, 60, 60);
 					i.popup.items = ["MIDI:" + i.midiDevices[index].device];
 					i.popup.background_(Color.green(0.7));  // only changes the look of displayed item
 					MIDIIn.connect;
-					MIDIIn.addFuncTo(\control, ~control);
+					i.midiConnected = true;
+					// MIDIIn.addFuncTo(\control, ~control);
 				});
 			});
 		};
@@ -131,28 +276,78 @@ i.startMIDI = {
 // make WINDOW
 i.makeWindow = {
 	// main window
-	i.window = Window.new("Tangible Signals - Serial Manager", Rect(10, 1910, 530, 200))
+	i.window = Window.new("Tangible Signals - Serial Manager", Rect(10, 1910, 360, 140))
 	.front
 	.background_(Color.white);
 
 	// interaction:
-	i.upperHalfView = CompositeView(i.window, Rect(0,0,530,60)).background_(Color.black);
-	i.interactionRow = HLayoutView(i.window, Rect(0,90,530,60)).background_(Color.black);
+	i.upperHalfView = CompositeView(i.window, Rect(0,0,530,150)).background_(Color.black);
 
 	// scan serial
-	i.scanSerialButton = Button(i.upperHalfView,Rect(10, 16, 100, 30)).states_([["Scan serial", Color.black, Color.white]])
+	i.scanSerialButton = Button(i.upperHalfView,Rect(10, 16, 100, 30)).states_([["scan devices", Color.black, Color.white]])
 	.action_({|b|
 		i.scanSerials();
 	});
 	// serial state
-	i.serialIndex = StaticText.new(i.upperHalfView, Rect(120, 0, 90, 60)).stringColor_(Color.white).string_("");
+	i.serialIndex = StaticText.new(i.upperHalfView, Rect(15, 35, 290, 60)).stringColor_(Color.white).string_("");
+	i.serialList = StaticText.new(i.upperHalfView, Rect(10, 80, 90, 60)).stringColor_(Color.white).string_("");
 
 	// MIDI input choose
-	i.popup = PopUpMenu(i.upperHalfView, Rect(240, 16, 190, 30));
+	i.popup = PopUpMenu(i.upperHalfView, Rect(140, 16, 190, 30));
 	i.popup.stringColor_(Color.black);   // only changes the look of displayed item
 	i.popup.font_(Font("Courier", 13));   // only changes the look of displayed item
 
 };
 i.makeWindow.value;
 i.startMIDI.value;
+
+
 )
+
+
+
+
+/*
+// send SERIAL to devices. Re-program Arduino Code (wheel!) to embed same standards.
+
+// pins
+i.tangibleDevices[1][\port].putAll("11111010!");
+// wheel
+i.tangibleDevices[0][\port].putAll("/wheel/startPos, 100, 0, 400, 2000");  // (command, position, revolution, fade in, speed)
+// fader
+// six numbers, all without comma or space
+// add 0 to numbers below 10 (arduino calculation)
+// add '!' at the end to define message ending
+i.tangibleDevices[2][\port].putAll("007645014763!");
+
+i.tangibleDevices[1][\name]
+i.tangibleDevices[1][\port].put(0)
+i.tangibleDevices[1][\port].put(49)
+i.tangibleDevices[1][\port].put(33)
+i.tangibleDevices[1][\port].put(100)
+
+'1'.ascii // 49
+'0'.ascii // 48
+"!".ascii // 33
+'\n'.ascii // 100
+
+*/
+
+
+
+
+
+
+
+// devices show as /dev/tty.SLAB_USBtoUART + integer
+
+/*
+Check device:
+"/dev/tty.SLAB_USBtoUART".split($/)[2];
+"/dev/tty.SLAB_USBtoUART".split($/)[2].split($.)[0] == "tty";
+Check the name:
+"/dev/tty.SLAB_USBtoUART".split($.);
+"/dev/tty.SLAB_USBtoUART".split($.)[1];
+"/dev/tty.SLAB_USBtoUART".split($.)[1].beginsWith("SLAB");
+
+*/
