@@ -27,7 +27,8 @@ i.allSerialDevices.do({|dev|
 		// check namespace
 		if (dev.split($.)[1].beginsWith("SLAB"), {
 			dev.postln;
-			i.tangibleDevices[i.serialCount] = [dev, "name", "port", "routine"];
+			// i.tangibleDevices[i.serialCount] = [dev, "name", "port", "routine"];
+			i.tangibleDevices[i.serialCount] = ('serial': dev, 'name': nil, 'port': nil, 'routine': nil, 'assigned': false);  // object instead of array
 			i.serialCount = i.serialCount + 1;
 		});
 	});
@@ -39,18 +40,18 @@ i.tangibleDevices.do({|dev, c|
 	if (dev != nil, {
 		"Tangible Devices: ".postln;
 		dev.postln;
-		dev[2] = SerialPort(
-			dev[0],
+		dev[\port] = SerialPort(
+			dev[\serial],
 			baudrate: 115200,
 			crtscts: true);
-		dev[2].doneAction = { (dev[0] + " - serial port got closed").postln; };
+		dev[\port].doneAction = { (dev[\serial] + " - serial port got closed").postln; };
 
-		dev[3] = Routine({
+		dev[\routine] = Routine({
 			var byte, str, arr, id, deviceName;
 			inf.do{
-				if(dev[2].read==10, {
+				if(dev[\port].read==10, {
 					str = "";
-					while({byte = dev[2].read; byte !=13 }, {
+					while({byte = dev[\port].read; byte !=13 }, {
 						str = str++byte.asAscii;
 					});
 					// STRING
@@ -65,7 +66,8 @@ i.tangibleDevices.do({|dev, c|
 						"fader", {deviceName = "fader"},
 						{deviceName = ""}
 					);
-					dev[1] = deviceName;
+					dev[\name] = deviceName;
+					dev[\assigned] = true;
 
 					/*("c: " + c).postln;
 					("id: " + id).postln;
@@ -75,7 +77,7 @@ i.tangibleDevices.do({|dev, c|
 					("c: " + c).postln;
 					("dev: " + c).postln;*/
 
-					i.serialFunction([c, deviceName, dev[0], arr, dev]);
+					i.serialFunction([c, deviceName, arr, dev]);
 				});
 			};
 		}).play;
@@ -84,7 +86,8 @@ i.tangibleDevices.do({|dev, c|
 
 
 i.serialFunction = {|f, message| if (message[1]!="fader", {
-	("serial function: " + message + i.tangibleDevices).postln;
+	("serial function: " + message).postln;
+	// i.tangibleDevices.do({|dev| if (dev[\assigned], {dev.postln})});
 }) };
 
 )
