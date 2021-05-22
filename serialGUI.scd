@@ -2,6 +2,12 @@
 // ===================================
 
 
+// Welle website sends MIDI at: 2 (1-16), receives MIDI at: 1 (1-16)
+// Emulation. sends MIDI at: 0 (0-15), receives MIDI at 1 (0-15)
+// SerialGUI: sends MIDI at: 1 (0-15), receives MIDI at 0 (0-15)
+
+
+
 (
 // SerialPort.listDevices;
 i = (); // all functions
@@ -15,13 +21,55 @@ i.stringDest = "eq"; // destination for eq or env
 i.pattern = [0,0,0,0,0,0,0,0];
 i.volume = 0.1;  // 425 * 0.296 = 126
 i.faderVal = [0,0,0,0,0,0];
-i.envelope = [ [ 0, 0.1, 0.3, 1 ], [ 0, 1, 0.4, 0 ] ] ; // atk, dec, sus, rel
-i.eq = [[0.0, 0.3, 0.7, 1.0], [0.5, 0.5, 0.5, 0.5]];
-i.eqMidi = [ 0.5, 0.25, 0.52, 0.7, 0.5 ];
-i.envMidi = [ 0.2, 0.15, 0.35, 0.64 ];
+// store String params
+i.midiEnv = [ 0.5, 0.25, 0.52, 0.7];
+i.midiEq  = [ 0.2, 0.15, 0.35, 0.64, 0.5 ];
+i.faderEnv = [0, 90, 30, 0, 30, 30];
+i.faderEq = [50, 50, 50, 50, 50, 100];
+
+// i.envelope = [ [ 0, 0.1, 0.3, 1 ], [ 0, 1, 0.4, 0 ] ] ; // atk, dec, sus, rel
+// i.eq = [[0.0, 0.3, 0.7, 1.0], [0.5, 0.5, 0.5, 0.5]];
+
 // i.stringInput = 0;
 // i.selInst = [1, 1];
 // i.selPattern = [1, 1];
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////
+// SEND SERIAL FUNCTION
+// i.sendSerial( ('device': "fader", 'content': [0,10,10,10,30]) );
+i.sendSerial = {|f, message|
+	var device = message[\device];
+	var command = message[\command];
+	var content = message[\content];
+	// ("send to Serial ...").postln;
+	switch(device,
+		"fader", {
+			var serialString = "", port;
+			content.do({|e|
+				if (e < 10, {
+					serialString = serialString + "0" + e.asString;
+				}, {
+					serialString = serialString + e.asString;
+				});
+			});
+			serialString = serialString + "!";
+			serialString = serialString.replace(" ", "");
+			("send to Serial Fader: " + serialString).postln;
+			i.tangibleDevices.do({|e, c| if (e[\name]=="fader", {port = i.tangibleDevices[c][\port]})});
+			port.putAll(serialString);
+		}
+	);
+};
+
+
+
+
 
 
 
@@ -56,16 +104,11 @@ i.sendMIDI = {|f, message|
 
 			},
 			'sendEnv', {
-				var newEnvMidi = message[1];
-				var envMidi = i.envMidi;
+				var newEnv = content;
 				for (0, 3, {|c|
-					var cc = c+16;  // midi control Env = cc 16-20
-					if (envMidi[c] != newEnvMidi[c], {  // check if eq changed, and only send changed values
-						i.midiOut.control(0, cc, newEnvMidi[c]*126);
-					});
-
+					var cc = c+16;  // midi control Env = cc 16-19
+					i.midiOut.control(i.midiSendChannel, cc, newEnv[c]);
 				});
-				i.envMidi = newEnvMidi;
 			}
 		)
 	})
@@ -112,10 +155,19 @@ i.serialFunction = {|f, message|
 				});
 			});
 			if (stringMoved, {
-				var newEq;
+				var newEq, newEnv;
 				if (i.stringDest == "eq", {
 					newEq = i.unConvertEq(content);
 					i.sendMIDI( ('command': 'sendEq', 'content': newEq) );
+					content.do({|e, c| i.faderEq[c] = e});
+					newEq.do({|e, c| i.midiEq[c] = e});
+				});
+				if (i.stringDest == "env", {
+					newEnv = i.unConvertEnv(content);
+					// ("serial send Env to MIDI: " + newEnv).postln;
+					i.sendMIDI( ('command': 'sendEnv', 'content': newEnv) );
+					content.do({|e, c| i.faderEnv[c] = e});
+					newEnv.do({|e, c| i.midiEnv[c] = e});
 				});
 				//("serial fader: " + content + "newEq: " + newEq).postln;
 			});
@@ -136,16 +188,19 @@ var rel = envShort[3];
 envArray = [ [0, atk, atk+dec, 1], [0, 1, sus, 0]];
 };
 */
-
-i.unConvertEnv = {|f, envLong|
+i.mapAttack = ControlSpec(5, 50, \lin);
+i.mapDecay = ControlSpec(20, 60, \lin);
+i.unConvertEnv = {|f, fader|
 	// device: [ 1, 2, 3, 4, horizontal1, horizontal2 ]
 	// Emulation only: [ [ 0, 0.1, 0.6, 1 ], [ 0, 1, 0.4, 0 ] ] -> [0,atk,atk+dec,atk+dec+rel,1]      [0,1,sus,sus,0]
+	// SerialGUI: [horizontal1, horizontal2-horizontal1, 3, 4]
+	// .. 1 = 0, 2 = volume. (Volume is tricky, corresponds to Volume wheel. How to embed?)
 	var envArray = Array.new(4);
-	var atk = envLong[0][1];
-	var dec = envLong[0][2]-atk;
-	var sus = envLong[1][2];
-	var rel = 1-dec-atk;
-	envArray = [ atk, dec, sus, rel ];
+	var atk = i.mapAttack.map(fader[4]/100).asInteger;
+	var dec = i.mapDecay.map(fader[5]/100).asInteger - atk;
+	var sus = fader[2];
+	var rel = fader[3];
+	envArray = [ atk, dec, sus, rel ]; // as * 126 [0, 0.1, 0.4, 0.1] -> [0, 10, 40, 10]
 };
 
 /*
@@ -164,7 +219,7 @@ eqArray = [[0, midFreq, highFreq, 1], [low, mid, mid, high]];
 i.mapMidFreq = ControlSpec(20, 50, \lin);
 i.mapHighFreq = ControlSpec(30, 60, \lin);
 i.unConvertEq = {|f, settings|
-	// [ 1, 2, 3, 4, horizontal1, horizontal2 ]
+	// [ 1, 2, 3, 4, horizontal1, horizontal2 ], values == 0-100
 	var high = settings[3];
 	var highFreq = i.mapHighFreq.map(settings[5]/100).asInteger;
 	var mid = ((settings[1] + settings[2]) / 2).asInteger;
@@ -263,8 +318,8 @@ i.scanSerials = {
 
 
 
-
-// display devices once they are recognized
+////////////////////////////////////////////////////////////
+// DISPLAY DEVICES - display devices once they are recognized
 i.displaySerialDevices = {
 	var assigned = 0, displayed = 0;
 	i.tangibleDevices.do{|dev|
@@ -335,11 +390,13 @@ i.updateStringDestination = {|f, string|
 			i.stringDest = "eq";
 			i.destEq.states_([["EQ", Color.black, Color.green]]);
 			i.destEnv.states_([["ENV", Color.black, Color.white]]);
+			i.sendSerial( ('device': "fader", 'content': i.faderEq) );
 		});
 		if (string == "env", {
 			i.stringDest = "env";
 			i.destEq.states_([["EQ", Color.black, Color.white]]);
 			i.destEnv.states_([["ENV", Color.black, Color.green]]);
+			i.sendSerial( ('device': "fader", 'content': i.faderEnv) );
 		});
 	}
 };
