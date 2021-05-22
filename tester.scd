@@ -2,9 +2,15 @@
 
 // works:
 // pins
-i.tangibleDevices[1][\port].putAll("11111010!");
+i.tangibleDevices[0][\port].putAll("11111010!");
+i.tangibleDevices[0][\port].putAll("10011010!");
+i.tangibleDevices[0][\port].putAll("00000000!");
+i.tangibleDevices[0][\port].putAll("1");
+i.tangibleDevices[0][\port].putAll("!");
+i.tangibleDevices[0][\port].put(33); // put byte
+i.tangibleDevices[0][\port].put(33); // put byte
 // wheel
-i.tangibleDevices[0][\port].putAll("/wheel/startPos, 100, 0, 400, 2000");  // (command, position, revolution, fade in, speed)
+i.tangibleDevices[1][\port].putAll("/wheel/startPos, 100, 0, 400, 2000");  // (command, position, revolution, fade in, speed)
 // fader
 // six numbers, all without comma or space
 // add 0 to numbers below 10 (arduino calculation)
@@ -25,7 +31,7 @@ i.tangibleDevices[1][\port].put(100)
 
 
 
-
+i.tangibleDevices.do({|e, c| if (e[\name]=="fader", {e.postln})})
 
 
 
@@ -79,7 +85,7 @@ i.volumeMap.unmap(300)
 425/126
 126/425
 126 * 3
-
+126 * 3.37
 
 90.034.asInteger
 
@@ -112,7 +118,7 @@ i.mapHighFreq.map(0.9).asInteger;
 
 
 
-
+send to Serial Fader:  007935574180!
 
 
 

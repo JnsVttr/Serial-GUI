@@ -1,6 +1,12 @@
 // Tangible Signals - Serial Ports GUI
 // ===================================
 
+/*
+Troubles: feedback loop - midi to device, device updates serial, serial sends to midi
+> for wheel (startposition message could help?)
+> no problems with pattern pin
+> true for envelope
+*/
 
 // Welle website sends MIDI at: 2 (1-16), receives MIDI at: 1 (1-16)
 // Emulation. sends MIDI at: 0 (0-15), receives MIDI at 1 (0-15)
@@ -26,6 +32,8 @@ i.midiEnv = [ 0.5, 0.25, 0.52, 0.7];
 i.midiEq  = [ 0.2, 0.15, 0.35, 0.64, 0.5 ];
 i.faderEnv = [0, 90, 30, 0, 30, 30];
 i.faderEq = [50, 50, 50, 50, 50, 100];
+// store incoming midi pattern
+i.midiPattern = [0,0,0,0,0,0,0,0];
 
 // i.envelope = [ [ 0, 0.1, 0.3, 1 ], [ 0, 1, 0.4, 0 ] ] ; // atk, dec, sus, rel
 // i.eq = [[0.0, 0.3, 0.7, 1.0], [0.5, 0.5, 0.5, 0.5]];
@@ -61,8 +69,39 @@ i.sendSerial = {|f, message|
 			serialString = serialString + "!";
 			serialString = serialString.replace(" ", "");
 			("send to Serial Fader: " + serialString).postln;
-			i.tangibleDevices.do({|e, c| if (e[\name]=="fader", {port = i.tangibleDevices[c][\port]})});
-			port.putAll(serialString);
+			i.tangibleDevices.do({|e, c|
+				if (e[\name]=="fader" && e[\assigned]==true, {
+					port = i.tangibleDevices[c][\port];
+					port.putAll(serialString);
+			})});
+
+		},
+		"wheel", {
+			var serialString = "/wheel/startPos, ", port;
+			serialString = serialString + (content * 3.37).asInteger.asString + ", 0, 400, 2000";
+			("send to serial wheel: " + serialString).postln;
+			i.tangibleDevices.do({|e, c|
+				if (e[\name]=="wheel" && e[\assigned]==true, {
+					port = i.tangibleDevices[c][\port];
+					port.putAll(serialString);
+			})});
+			// i.tangibleDevices[0][\port].putAll("/wheel/startPos, 100, 0, 400, 2000");  // (command, position, revolution, fade in, speed)
+		},
+		"pin", {
+			var serialString = "", port;
+			content.do({|e|
+				serialString = serialString + e.asString;
+			});
+			serialString = serialString + "!";
+			serialString = serialString.replace(" ", "");
+			// ("serialString: " + serialString).postln;
+			i.tangibleDevices.do({|e, c|
+				if (e[\name]=="pin" && e[\assigned]==true, {
+					// ["serialString: ", serialString].postln;
+					i.tangibleDevices[c][\port].putAll(serialString);
+					// i.tangibleDevices[c][\port].putAll("10011010!");
+				});
+			});
 		}
 	);
 };
@@ -70,6 +109,43 @@ i.sendSerial = {|f, message|
 
 
 
+////////////////////////////////////////////////////////////
+// MIDI INPUT function, chan 0-15
+~midiInFunction = { |src, chan, num, val|
+	//['MIDIIn', chan, num, val].postln;
+	if (chan==i.midiReceiveChannel, {
+		// ['> MIDIIn > control', chan,num,val].postln;
+		if (num==9, {
+			['MIDIIn volume', num, val].postln;
+			i.sendSerial( ('device': "wheel", 'content': val) );
+		});
+		if ((num>=1) && (num<=8), {
+			var index = num-1;
+			i.midiPattern[index] = val;
+			//i.sendSerial( ('device': "pin", 'content': i.midiPattern) );
+			if (index == 7, {
+				['MIDIIn pattern', i.midiPattern].postln;
+				i.sendSerial( ('device': "pin", 'content': i.midiPattern) );
+			});
+		});
+		/*if ((num>=10) && (num<=14), {
+			var index = num-10;
+			['MIDIIn eq', num, val].postln;
+			i.eqMidi[index] = val/100;
+			['MIDIIn i.eqMidi', i.eqMidi].postln;
+			i.eq = i.convertEq(i.eqMidi);
+			defer { i.updateWindow() };
+		});
+		if ((num>=16) && (num<=19), {
+			var index = num-16;
+			['MIDIIn env', num, val].postln;
+			i.envMidi[index] = val/126;
+			['MIDIIn i.envMidi', i.envMidi].postln;
+			i.envelope = i.convertEnv(i.envMidi);
+			defer { i.updateWindow() };
+		});*/
+	})
+};
 
 
 
@@ -82,7 +158,7 @@ i.sendSerial = {|f, message|
 i.sendMIDI = {|f, message|
 	var command = message[\command];
 	var content = message[\content];
-	("sendMidi - message: " + message).postln;
+	//("sendMidi - message: " + message).postln;
 	if (i.midiConnected, {
 		switch(command,
 			'sendVolume', {
@@ -125,6 +201,8 @@ i.serialFunction = {|f, message|
 	var command = message[\command]; // e.g. /pin, /wheel/startPos
 	var stringMoved = false;
 	var vol, eq, env;
+
+	("from serial port function: " + message).postln;
 	/*if (device != "fader", {
 	("serial function: " + message).postln;
 	});*/
@@ -132,11 +210,16 @@ i.serialFunction = {|f, message|
 	if (device == "pin", {
 		content.removeAt(8); // remove last entry, doesn't belong to pattern
 		i.sendMIDI( ('command': 'sendPattern', 'content': content) );
+		// update i.midiPattern
+		8.do({|c|
+			i.midiPattern[c] = content[c];
+		});
+
 	});
 	if (device == "wheel", {
 		vol = content[0].asInteger;
 		vol = (vol * 0.296).asInteger; // asInteger: get rid of decimals
-		("serial - " + "wheel vol: " + vol + " command: " + command).postln;
+		//("serial in:  " + "wheel vol: " + vol + " command: " + command).postln;
 		if ( command == "/wheel", {
 			i.sendMIDI( ('command': 'sendVolume', 'content': vol) );
 		});
@@ -234,8 +317,8 @@ i.unConvertEq = {|f, settings|
 ////////////////////////////////////////////////////////////
 // SCAN SERIAL PORTS FUNCTION
 i.scanSerials = {
+	var deviceName = Array.fill(3, nil);
 	i.allSerialDevices = SerialPort.devices;
-	i.tangibleDevices = Array.fill(3, nil);
 	i.serialCount = 0;
 	i.allSerialDevices.do({|dev|
 		// check if tty
@@ -244,14 +327,21 @@ i.scanSerials = {
 			if (dev.split($.)[1].beginsWith("SLAB"), {
 				// dev.postln;
 				// i.tangibleDevices[i.serialCount] = [dev, "name", "port", "routine"];
-				i.tangibleDevices[i.serialCount] = ('serial': dev, 'name': nil, 'port': nil, 'routine': nil, 'assigned': false);  // object instead of array
+				deviceName[i.serialCount] = dev;
 				i.serialCount = i.serialCount + 1;
 			});
 		});
 	});
 
+	// ("scan serial. deviceName: " + deviceName + " SerialCount:" + i.serialCount).postln;
+	i.tangibleDevices = Array.fill(i.serialCount, nil);
+	i.serialCount.do({|c|
+		i.tangibleDevices[c] = ('serial': deviceName[c], 'name': nil, 'port': nil, 'routine': nil, 'assigned': false);  // object instead of array
+	});
+
+
 	i.tangibleDevices.do({|dev, c|
-		if (dev != nil, {
+		if (dev[\serial] != nil, {
 			"Tangible Devices - set serial port for : ".post;
 			dev[\serial].postln;
 
@@ -323,7 +413,7 @@ i.scanSerials = {
 i.displaySerialDevices = {
 	var assigned = 0, displayed = 0;
 	i.tangibleDevices.do{|dev|
-		if (dev[\assigned], {assigned = assigned + 1});
+		if (dev[\assigned]==true, {assigned = assigned + 1});
 	};
 	// count how many are already displayed
 	displayed = i.serialList.string.split($\n).size - 1;
@@ -340,7 +430,7 @@ i.displaySerialDevices = {
 	});
 
 	defer {
-		if (displayed > 2, {
+		if (displayed > (i.serialCount-1), {
 			i.serialIndex.string = "connected: " + i.serialCount;
 		});
 	}
@@ -375,7 +465,7 @@ i.startMIDI = {
 					i.popup.background_(Color.green(0.7));  // only changes the look of displayed item
 					MIDIIn.connect;
 					i.midiConnected = true;
-					// MIDIIn.addFuncTo(\control, ~control);
+					MIDIIn.addFuncTo(\control, ~midiInFunction);
 				});
 			});
 		};
@@ -400,7 +490,18 @@ i.updateStringDestination = {|f, string|
 		});
 	}
 };
-
+// update MIDI Channels
+i.updateMidiChannels = {|f, message|
+	("update midi channels message: " + message).postln;
+	if (message == 0, {
+		i.midiSendChannel = 1;
+		i.midiReceiveChannel = 0;
+	});
+	if (message == 1, {
+		i.midiSendChannel = 0;
+		i.midiReceiveChannel = 1;
+	});
+};
 
 ////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////
@@ -437,6 +538,13 @@ i.makeWindow = {
 	i.destEnv = Button(i.upperHalfView,Rect(210, 107, 60, 20)).states_([["ENV", Color.black, Color.white]])
 	.action_({|b|
 		defer {i.updateStringDestination("env");}
+	});
+
+	// MIDI send channels, buttons
+	StaticText.new(i.upperHalfView, Rect(300, 65, 290, 60)).stringColor_(Color.white).string_("channels");
+	i.channelSelector = Button(i.upperHalfView,Rect(280, 107, 75, 20)).states_([[">1 | 2>", Color.black, Color.white], [">2 | 1>", Color.black, Color.white]])
+	.action_({|b|
+		defer {i.updateMidiChannels(b.value)}
 	});
 };
 i.makeWindow.value;
@@ -483,7 +591,10 @@ i.tangibleDevices[1][\port].put(100)
 
 // devices show as /dev/tty.SLAB_USBtoUART + integer
 
+
 /*
+SerialPort.listDevices;
+
 Check device:
 "/dev/tty.SLAB_USBtoUART".split($/)[2];
 "/dev/tty.SLAB_USBtoUART".split($/)[2].split($.)[0] == "tty";
