@@ -129,20 +129,20 @@ i.sendSerial = {|f, message|
 			});
 		});
 		/*if ((num>=10) && (num<=14), {
-			var index = num-10;
-			['MIDIIn eq', num, val].postln;
-			i.eqMidi[index] = val/100;
-			['MIDIIn i.eqMidi', i.eqMidi].postln;
-			i.eq = i.convertEq(i.eqMidi);
-			defer { i.updateWindow() };
+		var index = num-10;
+		['MIDIIn eq', num, val].postln;
+		i.eqMidi[index] = val/100;
+		['MIDIIn i.eqMidi', i.eqMidi].postln;
+		i.eq = i.convertEq(i.eqMidi);
+		defer { i.updateWindow() };
 		});
 		if ((num>=16) && (num<=19), {
-			var index = num-16;
-			['MIDIIn env', num, val].postln;
-			i.envMidi[index] = val/126;
-			['MIDIIn i.envMidi', i.envMidi].postln;
-			i.envelope = i.convertEnv(i.envMidi);
-			defer { i.updateWindow() };
+		var index = num-16;
+		['MIDIIn env', num, val].postln;
+		i.envMidi[index] = val/126;
+		['MIDIIn i.envMidi', i.envMidi].postln;
+		i.envelope = i.convertEnv(i.envMidi);
+		defer { i.updateWindow() };
 		});*/
 	})
 };
@@ -198,17 +198,16 @@ i.sendMIDI = {|f, message|
 i.serialFunction = {|f, message|
 	var device = message[\name]; // e.g. "pin", "wheel" or "fader"
 	var content = message[\content]; // array, e.g. [1,1,1,1,1,1,1,1], [ 182, 0, 0], [ 0, 12, 12, 33, 43, 12]
-	var command = message[\command]; // e.g. /pin, /wheel/startPos
+	var command; // e.g. /pin, /wheel/startPos
 	var stringMoved = false;
 	var vol, eq, env;
 
-	("from serial port function: " + message).postln;
+	// ("from serial port function: " + message).postln;
 	/*if (device != "fader", {
 	("serial function: " + message).postln;
 	});*/
 
 	if (device == "pin", {
-		content.removeAt(8); // remove last entry, doesn't belong to pattern
 		i.sendMIDI( ('command': 'sendPattern', 'content': content) );
 		// update i.midiPattern
 		8.do({|c|
@@ -216,6 +215,9 @@ i.serialFunction = {|f, message|
 		});
 
 	});
+
+
+	/*
 	if (device == "wheel", {
 		vol = content[0].asInteger;
 		vol = (vol * 0.296).asInteger; // asInteger: get rid of decimals
@@ -224,6 +226,9 @@ i.serialFunction = {|f, message|
 			i.sendMIDI( ('command': 'sendVolume', 'content': vol) );
 		});
 	});
+	*/
+
+	/*
 	if (device == "fader", {
 		if (content.size > 6, {content.removeAt(6)});
 		if (content.size == 6, {
@@ -256,6 +261,7 @@ i.serialFunction = {|f, message|
 			});
 		});
 	});
+	*/
 };
 
 
@@ -339,18 +345,24 @@ i.scanSerials = {
 		i.tangibleDevices[c] = ('serial': deviceName[c], 'name': nil, 'port': nil, 'routine': nil, 'assigned': false);  // object instead of array
 	});
 
-
+	// assign serial port devices
 	i.tangibleDevices.do({|dev, c|
 		if (dev[\serial] != nil, {
 			"Tangible Devices - set serial port for : ".post;
 			dev[\serial].postln;
-
-
 			dev[\port] = SerialPort(
 				dev[\serial],
 				baudrate: 115200,
 				crtscts: true);
 			dev[\port].doneAction = { (dev[\serial] + " - serial port got closed").postln; };
+		});
+	});
+
+	// ID devices + serial input
+	i.tangibleDevices.do({|dev, c|
+		if (dev[\serial] != nil, {
+			"Tangible Devices - assign ID: ".post;
+			dev[\serial].postln;
 
 			dev[\routine] = Routine({
 				var byte, str, arr, id, deviceName, command, content, message;
@@ -360,48 +372,63 @@ i.scanSerials = {
 						while({byte = dev[\port].read; byte !=13 }, {
 							str = str++byte.asAscii;
 						});
-						// STRING
-						// split string into array
-						arr = str.replace(",", "").split($ );
 
-						// get command and content
-						command = arr[0];
-						// extract first message and split to device id
-						id = arr[0].split($/)[1];
-						arr.removeAt(0); // remove first entry (command)
-						// content = arr;
-						content = Array.fill(arr.size);
-						arr.do({|entry, c|
-							content[c] = entry.asInteger;
+						// SERIAL INPUT
+						if (dev[\assigned], {
+							deviceName = dev[\name];
+							// serial INPUT
+							// split string into array
+							arr = str.split($,);
+							// extract content from arr, convert to integers
+							content = Array.fill(arr.size);
+							arr.do({|entry, c| content[c] = entry.asInteger; });
+
+							message = ('name': deviceName, 'content': content);
+							("serial input message: " + message).postln;
+							i.serialFunction( message );
 						});
 
-
-						switch(id,
-							"wheel", {deviceName = "wheel"},
-							"pin", {deviceName = "pin"},
-							"fader", {deviceName = "fader"},
-							{deviceName = nil}
-						);
-						if (dev[\name] == nil && deviceName != nil, {
-							dev[\name] = deviceName;
-							dev[\assigned] = true;
-							defer {
-								if (i.window.isClosed == false, {
-									i.displaySerialDevices.value;
-								});
-							};
+						// ID
+						if (dev[\assigned]==false, {
+							switch(str,
+								"pin", {
+									dev[\name] = str;
+									dev[\assigned] = true;
+									defer {if (i.window.isClosed == false, { i.displaySerialDevices.value;});};
+								},
+								"wheel", {
+									dev[\name] = str;
+									dev[\assigned] = true;
+									defer {if (i.window.isClosed == false, { i.displaySerialDevices.value;});};
+								},
+								"string", {
+									dev[\name] = str;
+									dev[\assigned] = true;
+									defer {if (i.window.isClosed == false, { i.displaySerialDevices.value;});};
+								},
+							);
 						});
 
-						// i.serialFunction([c, deviceName, arr, dev]);
-						message = ('count': c, 'name': deviceName, 'command': command, 'content': content);
-						i.serialFunction( message );
 					});
 				};
 			}).play;
 		});
 	});
+	i.tangibleDevices.do({|dev, c|
+		if (dev[\serial] != nil, {
+			// send ID command
+			Routine({
+				0.5.wait;
+				// 3.do({ dev[\port].putAll(""); 0.3.wait; });
+				0.2.wait;
+				dev[\port].putAll("9");
+				0.2.wait;
+				dev[\port].putAll("9");
+			}).play;
+		});
+	});
 
-	defer { i.serialIndex.string = "connected: " + i.serialCount + " (move to assign)"; };
+	defer { i.serialIndex.string = "connected: " + i.serialCount; };
 };
 
 

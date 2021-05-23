@@ -1,5 +1,11 @@
 
+l = "pin"
+if ((l == "pin") || (l == "wheel") || (l=="string"), {(l).postln;});
 
+// ID ?
+i.tangibleDevices[1][\port].putAll("");
+i.tangibleDevices[1][\port].putAll("9");
+i.tangibleDevices[0][\port].putAll("s");
 // works:
 // pins
 i.tangibleDevices[0][\port].putAll("11111010!");
@@ -27,7 +33,8 @@ i.tangibleDevices[1][\port].put(100)
 '0'.ascii // 48
 "!".ascii // 33
 '\n'.ascii // 100
-
+"s".ascii
+"9".ascii
 
 
 
