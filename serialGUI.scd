@@ -19,8 +19,8 @@ Troubles: feedback loop - midi to device, device updates serial, serial sends to
 i = (); // all functions
 i.midiConnected = false; // true if MIDI is connected
 // send-receive channels to be adapted: send to WELLE (1) receive (0); send to Emulation (0), receive (1)
-i.midiSendChannel = 1;
-i.midiReceiveChannel = 0;
+i.midiSendChannel = 0;
+i.midiReceiveChannel = 1;
 i.stringDest = "eq"; // destination for eq or env
 
 // global vars
@@ -225,7 +225,7 @@ i.serialFunction = {|f, message|
 		});
 	});
 	if (device == "fader", {
-		content.removeAt(6);
+		if (content.size > 6, {content.removeAt(6)});
 		if (content.size == 6, {
 			// smooth messages
 			content.do({|val, c|
@@ -493,11 +493,11 @@ i.updateStringDestination = {|f, string|
 // update MIDI Channels
 i.updateMidiChannels = {|f, message|
 	("update midi channels message: " + message).postln;
-	if (message == 0, {
+	if (message == 1, {
 		i.midiSendChannel = 1;
 		i.midiReceiveChannel = 0;
 	});
-	if (message == 1, {
+	if (message == 0, {
 		i.midiSendChannel = 0;
 		i.midiReceiveChannel = 1;
 	});
@@ -542,17 +542,20 @@ i.makeWindow = {
 
 	// MIDI send channels, buttons
 	StaticText.new(i.upperHalfView, Rect(300, 65, 290, 60)).stringColor_(Color.white).string_("channels");
-	i.channelSelector = Button(i.upperHalfView,Rect(280, 107, 75, 20)).states_([[">1 | 2>", Color.black, Color.white], [">2 | 1>", Color.black, Color.white]])
+	i.channelSelector = Button(i.upperHalfView,Rect(280, 107, 75, 20)).states_([[">2 | 1>", Color.black, Color.white],[">1 | 2>", Color.black, Color.white]])
 	.action_({|b|
 		defer {i.updateMidiChannels(b.value)}
 	});
+
 };
 i.makeWindow.value;
 i.startMIDI.value;
-defer {i.updateStringDestination("eq");}
-
+defer {
+	i.updateStringDestination("eq");
+};
 
 )
+
 
 
 
