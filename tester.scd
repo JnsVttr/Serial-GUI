@@ -2,6 +2,9 @@
 l = "pin"
 if ((l == "pin") || (l == "wheel") || (l=="string"), {(l).postln;});
 
+// wheel
+i.tangibleDevices[0][\inProgress]=true; i.tangibleDevices[0][\port].putAll("1, 300,0,400, 2000");
+
 // ID ?
 i.tangibleDevices[1][\port].putAll("");
 i.tangibleDevices[1][\port].putAll("9");
@@ -129,4 +132,5 @@ send to Serial Fader:  007935574180!
 
 
 
-
+r = Routine({2.wait;"value".postln;})
+r.play

@@ -77,11 +77,13 @@ i.sendSerial = {|f, message|
 
 		},
 		"wheel", {
-			var serialString = "/wheel/startPos, ", port;
-			serialString = serialString + (content * 3.37).asInteger.asString + ", 0, 400, 2000";
+			// command = 1 for setting startpoint
+			var serialString = "1, ", port;
+			serialString = serialString + (content * 3.37).asInteger.asString + ", 0, 40, 3000";
 			("send to serial wheel: " + serialString).postln;
-			i.tangibleDevices.do({|e, c|
-				if (e[\name]=="wheel" && e[\assigned]==true, {
+			i.tangibleDevices.do({|dev, c|
+				if (dev[\name]=="wheel" && dev[\assigned]==true, {
+					dev[\inProgress] = true;
 					port = i.tangibleDevices[c][\port];
 					port.putAll(serialString);
 			})});
@@ -198,6 +200,7 @@ i.sendMIDI = {|f, message|
 i.serialFunction = {|f, message|
 	var device = message[\name]; // e.g. "pin", "wheel" or "fader"
 	var content = message[\content]; // array, e.g. [1,1,1,1,1,1,1,1], [ 182, 0, 0], [ 0, 12, 12, 33, 43, 12]
+	var pos = message[\pos];
 	var command; // e.g. /pin, /wheel/startPos
 	var stringMoved = false;
 	var vol, eq, env;
@@ -217,16 +220,25 @@ i.serialFunction = {|f, message|
 	});
 
 
-	/*
+
 	if (device == "wheel", {
-		vol = content[0].asInteger;
-		vol = (vol * 0.296).asInteger; // asInteger: get rid of decimals
-		//("serial in:  " + "wheel vol: " + vol + " command: " + command).postln;
-		if ( command == "/wheel", {
-			i.sendMIDI( ('command': 'sendVolume', 'content': vol) );
+		command = content[0].asInteger;
+		// incoming wheel position
+		if ( command == 0, {
+			if (i.tangibleDevices[pos][\inProgress]==false, {
+				vol = ((content[1].asInteger) * 0.296).asInteger; // asInteger: get rid of decimals
+				i.sendMIDI( ('command': 'sendVolume', 'content': vol) );
+				("serial func: wheel vol: " + vol + " command: " + command).postln;
+			});
 		});
+		// incoming "reached startpoint" indicator
+		if (command==1, {
+			// reset inProgress to let wheel messages through with short delay
+			Routine({0.5.wait; i.tangibleDevices[pos][\inProgress]=false; }).play;
+		});
+
 	});
-	*/
+
 
 	/*
 	if (device == "fader", {
@@ -342,7 +354,8 @@ i.scanSerials = {
 	// ("scan serial. deviceName: " + deviceName + " SerialCount:" + i.serialCount).postln;
 	i.tangibleDevices = Array.fill(i.serialCount, nil);
 	i.serialCount.do({|c|
-		i.tangibleDevices[c] = ('serial': deviceName[c], 'name': nil, 'port': nil, 'routine': nil, 'assigned': false);  // object instead of array
+		i.tangibleDevices[c] = ('serial': deviceName[c], 'name': nil, 'port': nil, 'routine': nil, 'assigned': false,
+			'inProgress': false, 'pos': c);  // object instead of array
 	});
 
 	// assign serial port devices
@@ -383,7 +396,7 @@ i.scanSerials = {
 							content = Array.fill(arr.size);
 							arr.do({|entry, c| content[c] = entry.asInteger; });
 
-							message = ('name': deviceName, 'content': content);
+							message = ('name': deviceName, 'content': content, 'pos': dev[\pos]);
 							("serial input message: " + message).postln;
 							i.serialFunction( message );
 						});
