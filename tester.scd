@@ -1,4 +1,29 @@
 
+
+
+
+
+128%2
+0.6 % 0.1
+120%20
+320%20
+20%10
+
+520%20
+
+0.52359837598253.round(0.01)
+
+126 / 126
+12.map
+
+p = "pin";
+if ((p=="pin") || (p=="wheel") || (p=="string"), {"yes.postln"})
+
+
+u = [0]
+u.size > 1
+0.9.rand
+
 i.sendSerial( ('device': "string", 'content': [0,10,10,10,30,0]) );
 
 l = "pin"
@@ -7,9 +32,15 @@ if ((l == "pin") || (l == "wheel") || (l=="string"), {(l).postln;});
 // wheel
 i.tangibleDevices[0][\inProgress]=true; i.tangibleDevices[0][\port].putAll("1, 300,0,30, 4000");
 
+3.do({|c| i.tangibleDevices[c][\serial].postln  });
+
+3.do({|c| i.tangibleDevices[c][\port].putAll("xxx");  });
+
+3.do({|c| i.tangibleDevices[c][\port].putAll("9");  });
+
 // ID ?
-i.tangibleDevices[1][\port].putAll("");
-i.tangibleDevices[1][\port].putAll("9");
+i.tangibleDevices[0][\port].putAll("!");
+i.tangibleDevices[0][\port].putAll("9");
 i.tangibleDevices[0][\port].putAll("0,50,50,50,50,30,80!");
 // works:
 // pins
