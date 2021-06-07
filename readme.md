@@ -14,3 +14,5 @@ More on "Tangible Signals" here: https://tamlab.ufg.at/projects/tangible-signals
 
 <img src="serial-manager.png" alt="serial-manager" style="zoom:40%;" />
 
+![](serial-manager.png | width=50)
+
