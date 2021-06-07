@@ -10,6 +10,7 @@ Detects ESP32 devices in ```/dev/``` based on the namespace ```*SLAB*``` . Conne
 
 
 
-<img src="Serial GUI.png" alt="Serial GUI" style="zoom:50%;" />
+<img src="Serial GUI.png" alt="Serial GUI" style="zoom:40%;" />
 
 More on "Tangible Signals" here: https://tamlab.ufg.at/projects/tangible-signals
+
