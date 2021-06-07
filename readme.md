@@ -12,7 +12,7 @@ Detects ESP32 devices in ```/dev/``` based on the namespace ```*SLAB*``` . Conne
 
 More on "Tangible Signals" here: https://tamlab.ufg.at/projects/tangible-signals
 
-<img src="serial-manager.png" alt="serial-manager" style="zoom:40%;" />
+<img src="serial-manager.png" alt="serial-manager" style="width:40%; float:left"  />
 
-![](serial-manager.png | width=50)
+
 
