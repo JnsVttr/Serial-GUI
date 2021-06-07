@@ -2,7 +2,9 @@
 
 
 
-Serial GUI - a helper for "Tangible Signals" to convert from serial input to MIDI and MIDI to serial messages with SuperCollider.
+Serial GUI - a helper for "Tangible Signals" devices to connect to the web-based music environment [Welle](https://github.com/JnsVttr/Welle), e.g. convert from serial input to MIDI and MIDI to serial with SuperCollider. 
+
+More on the Tangible Signals project here: https://tamlab.ufg.at/projects/tangible-signals
 
 
 
