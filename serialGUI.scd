@@ -5,8 +5,9 @@
 
 (
 /*
-
+bugs:
 STRING device: weird wrong reading on fader 1, jumps from normal to very low..
+when only "wheel" connected, than on MIDI In -> GUI value display "wheel" shows string values
 
 
 Troubles: feedback loop - midi to device, device updates serial, serial sends to midi
